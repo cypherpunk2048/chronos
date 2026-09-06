@@ -56,6 +56,14 @@ CODEBASE (live, public — cypherpunk2048 standard)
   Both verified live against Ethereum mainnet; both agree to 18dp.
   This .oracle file is mirrored there as the canonical spec.
 
+  SIBLING SERVICE — oracle.luv (v1.0.0, 2026-09-06): chronos.oracle
+  duplicated as a price service. Same zero-dep instrument, same RPC read,
+  pointed at the LUV/WETH pair: getReserves() pinned to the block it
+  speaks, so price and time are one observation. chronos.oracle says
+  "when"; oracle.luv says "how much" and carries the "when".
+    oracle.luv        — the spec, alongside this file
+    src/luvprice.py · src/luvprice.js — LUV/ETH and ETH/LUV in actual, 18dp
+
 INHERITANCE
   TimeOracle.get_time()   → consensus time from 4 sources
   TimeOracle.get_lunar()  → moon phase, day, cycle percentage

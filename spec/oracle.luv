@@ -1,0 +1,97 @@
+ORACLE: oracle.luv
+VERSION: 1.0.0
+INHERITS: chronos.oracle (the blocktime class; the stamp)
+AGENT: Chronos.agent (speaks) · Kairos.agent (acts)
+DOMAIN: price — LUV / ETH and ETH / LUV, in actual
+
+DESCRIPTION
+I speak the price of LUV. That is all I do.
+18 decimal places of precision. cypherpunk2048 standard.
+I do not act. I delegate action to Kairos.
+
+I am chronos.oracle duplicated as a service: the same zero-dependency
+instrument, the same JSON-RPC read, the same honest labelling — pointed
+at a liquidity pair instead of a block header. chronos.oracle answers
+"when"; oracle.luv answers "how much", and every "how much" carries its
+"when" from chronos.oracle. A price without a block is a rumour.
+
+THE SOURCE (doctrine, user-set)
+The price of LUV is CREATED by the liquidity pair and EXPRESSED on
+Uniswap. 100 % of circulating LUV lives in one Uniswap V2 pool.
+Aggregators (Dexscreener, DeFiLlama, CoinGecko) are enrichment, never
+the source. "In actual" means: the two reserves read from the pair
+contract by eth_call at a stated block, and nothing else.
+
+  LUV token        0x2711111111683B8708cb9a48cBf36a51315F8254  (18 dec)
+  LUV/WETH pair    0x57D2085Aa859a145cB107845AD03c0eAAFBD8a31  (V2; token0 = LUV, token1 = WETH)
+  WETH             0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+  USDC/WETH pair   0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc  (ETH/USD leg, optional; USDC 6 dec)
+  seed             exactly 10 WEI per LUV (1e-17 ETH/LUV)
+
+  price_native  ETH per LUV  = reserve1 / reserve0
+  price_inverse LUV per ETH  = reserve0 / reserve1
+  wei_per_luv                = reserve1 / reserve0 × 10^18   (the seed was 10.000000000000000000)
+
+THE STAMP (from chronos.oracle)
+Every reading is taken at ONE block: the head is read first, then
+getReserves() is called AT THAT BLOCK (eth_call with the block tag), so
+price and time are a single atomic observation, never a price from one
+moment and a clock from another. The reading carries:
+  block               head number the reserves were read at
+  timestamp           that block's timestamp (whole seconds — chain granularity)
+  reserves_updated    blockTimestampLast from the pair itself (the last swap/sync)
+  rpc                 which node answered
+The deployed collector (luv.oracle, luv-market-collector.mjs) stamps
+market.json with local wall-clock ms and block: null. oracle.luv is the
+correction: the stamp is the chain's, and chronos.agent turns it into
+promised time (unix_18dp, confidence_ms, consensus) downstream.
+
+Signal classes (in increasing strength):
+  aggregator     — third-party API; enrichment only, never quoted as the price
+  reserves       — eth_call getReserves() at the head; the price in actual
+  reserves@block — the same, pinned to a stated block; the ONLY class this
+                   oracle publishes
+  swap-anchor    — a Swap event of OUR OWN making confirmed in a block; the
+                   strongest binding (the price we actually paid), and a
+                   transaction anchor for chronos.oracle at the same time
+
+PRECISION (honest)
+Reserves are exact integers in wei — source resolution 1 wei. Ratios are
+DERIVED and published at 18dp by integer arithmetic (floor), so the
+Python and JS instruments agree to the last digit.
+  ETH/LUV at 18dp is ~1e-16 and so shows only 2–3 significant digits at
+  that scale. It is published for form; wei_per_luv (~10^2) and
+  luv_per_eth (~10^16) carry the full 18 decimals and are the numbers to
+  compare. Precision is never claimed beyond the source.
+
+CODEBASE (this repo — cypherpunk2048 standard)
+  github.com/cypherpunk2048/chronos.oracle
+    src/luvprice.py   — zero-dep stdlib (int arithmetic, Decimal for display)
+    src/luvprice.js   — zero-dep ES module (Node ≥18 / browser), BigInt
+  Both read the same block; both must agree to 18dp. This .oracle file is
+  mirrored to mindX agents/ and chronos/spec/ as the canonical spec.
+
+INHERITANCE
+  chronos.oracle latest_block()      → the block the reading is pinned to
+  chronos.oracle avg_blocktime()     → the clock for price.shift (below)
+  oracle.luv extends with:
+    - reserves_at(block)             → (reserve0, reserve1, blockTimestampLast) exact
+    - price_at(block)                → both directions, 18dp, stamped
+    - eth_usd_at(block)              → from the USDC/WETH pair at the SAME block (optional leg)
+    - price_shift(prev, curr, spb)   → Δprice per block and per measured second
+                                       (chronos.oracle sentiment.shift, applied to price)
+
+QUERIES
+  "What is LUV worth in ETH?"   → price_at().eth_per_luv_18dp   (+ block, timestamp)
+  "What is 1 ETH in LUV?"       → price_at().luv_per_eth_18dp
+  "How many WEI per LUV?"       → price_at().wei_per_luv_18dp   (seed was 10)
+  "In USD?"                     → eth_per_luv × eth_usd_at(same block); labelled derived
+  "Since when?"                 → reserves_updated (last sync) and block
+
+DELEGATION
+  All action delegated to Kairos.agent. oracle.luv never swaps, never
+  seeds, never moves a lock. It speaks the price; a treasury acts on it
+  only through the primitives in Chronos.agent / Kairos.agent
+  TREASURY MANAGEMENT (variable timelock + LIQlocker).
+
+END
