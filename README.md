@@ -80,6 +80,41 @@ Zero-dependency implementations in both languages ([`src/blocktime.py`](src/bloc
 [`src/blocktime.js`](src/blocktime.js)), verified live against Ethereum mainnet
 and agreeing to 18 decimal places.
 
+## Price from a liquidity pair — the blocktime stamp, extended
+
+A price is created by a liquidity pair and expressed on the exchange that holds it;
+aggregators are enrichment, never the source. [`src/pairprice.py`](src/pairprice.py) ·
+[`src/pairprice.js`](src/pairprice.js) extend the blocktime instruments to any pool: the
+head block is read first, then the pool's own state is read **at that block**, so the
+price and its time are one observation. *A price without a block is a rumour.*
+
+| instrument | reading |
+|---|---|
+| `poolState` / `pool_state` | V2 `getReserves()` or V3 `slot0()` at a stated block — detected, exact integers |
+| `priceAt` / `price_at` | both directions at 18dp, decimals-corrected, keyed by symbol (`USDC_per_WETH_18dp`) + the stamp `{block, timestamp}` |
+| `quote` | `priceAt` plus *the price of `--base`* (symbol or address) |
+| `priceShift` / `price_shift` | Δprice per block and per **measured** second — sentiment.shift applied to price |
+
+```
+python3 src/pairprice.py <pair> [--base SYM|0x…] [--block N] [--rpc URL] [--shift-span N]
+node    src/pairprice.js <pair> [--base SYM|0x…] [--block N] [--rpc URL] [--shift-span N]
+```
+
+Ratios are derived by integer floor division so the two agree to the last digit. Verified
+live, mainnet block 25 916 945 (2026-09-06), both implementations identical:
+
+| pool | kind | reading |
+|---|---|---|
+| LUV/WETH `0x57D2085A…8a31` | uniswap-v2 | 1 LUV = 0.000000000000000106 WETH (9 383 582 798 481 401.22… LUV/ETH) |
+| USDC/WETH 0.05 % `0x88e6A0c2…5640` | uniswap-v3 | 1 WETH = 2495.524128771772663289 USDC |
+
+Source resolution is stated on every reading: 1 wei per reserve (V2) or the Q64.96 fixed
+point (V3); the ratio is derived. Public nodes rate-limit and fail in bursts, so a reading
+is retried across `FALLBACK_RPCS` (publicnode → drpc → cloudflare) and the stamp records
+which node actually answered. `--shift-span` reads state at an earlier block: non-archive
+public nodes keep roughly the last 128 blocks, so longer spans need an archive `--rpc`. The concrete LUV instance, with its own spec, is
+[`oracle.luv`](spec/oracle.luv) in [chronos.oracle](https://github.com/cypherpunk2048/chronos.oracle).
+
 ## Precision, honestly
 
 18 decimal places (Python `Decimal`, BigInt-scaled JS) — applied to *derived*
@@ -96,8 +131,11 @@ src/chronos_agent.py   the runtime — anchors, drift history, accuracy
                        multi-source TimeOracle is optional and degrades
                        honestly when absent)
 src/blocktime.py|.js   the blocktime derivative instruments
+src/pairprice.py|.js   price of any token from its liquidity pair (V2 reserves / V3
+                       slot0), read at the stamped block — blocktime, extended
 spec/Chronos.agent     the behavior contract + the time.derivative skill
 spec/chronos.oracle    the oracle spec — signal classes and their strengths
+spec/oracle.luv        chronos.oracle duplicated as a price service for LUV
 ```
 
 ## Chronos and Kairos
