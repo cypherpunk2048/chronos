@@ -19,6 +19,8 @@
 // (scale 1e18) — no float drift in the arithmetic path.
 
 const SCALE = 10n ** 18n;
+// BigInt `/` truncates toward zero; the Python twin floors. Floor here too, so negatives agree.
+const floorDiv = (a, b) => { const q = a / b; return (a % b !== 0n && (a < 0n) !== (b < 0n)) ? q - 1n : q; };
 
 async function rpcCall(rpc, method, params) {
   const res = await fetch(rpc, {
@@ -59,7 +61,7 @@ export async function avgBlocktime(rpc, span = 100) {
   ]);
   const dt = BigInt(head.timestamp - parseInt(past.timestamp, 16));
   return {
-    seconds_per_block_18dp: fmt18((dt * SCALE) / BigInt(span)),
+    seconds_per_block_18dp: fmt18(floorDiv(dt * SCALE, BigInt(span))),
     span,
     head_block: head.number,
     source_resolution: "1s (chain timestamp granularity)",
@@ -80,9 +82,9 @@ export function sentimentShift(prev, curr, avg18) {
   const dBlocks = curr.block - prev.block;
   if (dBlocks <= 0) throw new Error("sentiment.shift: non-advancing blocks");
   const dValue = curr.value - prev.value;
-  const perBlock = (BigInt(Math.round(dValue * 1e9)) * SCALE) / (BigInt(dBlocks) * 10n ** 9n);
+  const perBlock = floorDiv(BigInt(Math.round(dValue * 1e9)) * SCALE, BigInt(dBlocks) * 10n ** 9n);
   // normalize: per SECOND of measured chain time = perBlock / avgBlocktime
-  const perSecond = (perBlock * SCALE) / parse18(avg18);
+  const perSecond = floorDiv(perBlock * SCALE, parse18(avg18));
   return {
     d_value: dValue,
     d_blocks: dBlocks,

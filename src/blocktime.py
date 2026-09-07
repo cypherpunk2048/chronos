@@ -14,11 +14,16 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from decimal import Decimal, getcontext
+from decimal import ROUND_FLOOR, Decimal, getcontext
 
 getcontext().prec = 38  # 18dp with headroom, per the cypherpunk2048 standard
 
 Q18 = Decimal(1).scaleb(-18)
+
+
+def _q(x: Decimal) -> Decimal:
+    """18dp, FLOOR — the same rounding as the JS twin's BigInt floor division, negatives included."""
+    return x.quantize(Q18, rounding=ROUND_FLOOR)
 
 
 def _rpc(rpc: str, method: str, params: list) -> dict:
@@ -45,7 +50,7 @@ def avg_blocktime(rpc: str, span: int = 100) -> dict:
     past = _rpc(rpc, "eth_getBlockByNumber", [hex(head["number"] - span), False])
     dt = Decimal(head["timestamp"] - int(past["timestamp"], 16))
     return {
-        "seconds_per_block": (dt / Decimal(span)).quantize(Q18),
+        "seconds_per_block": _q(dt / Decimal(span)),
         "span": span,
         "head_block": head["number"],
         "source_resolution": "1s (chain timestamp granularity)",
@@ -53,7 +58,7 @@ def avg_blocktime(rpc: str, span: int = 100) -> dict:
 
 
 def blocks_to_seconds(blocks: int, seconds_per_block: Decimal) -> Decimal:
-    return (Decimal(blocks) * seconds_per_block).quantize(Q18)
+    return _q(Decimal(blocks) * seconds_per_block)
 
 
 def sentiment_shift(prev: dict, curr: dict, seconds_per_block: Decimal) -> dict:
@@ -65,8 +70,8 @@ def sentiment_shift(prev: dict, curr: dict, seconds_per_block: Decimal) -> dict:
     if d_blocks <= 0:
         raise ValueError("sentiment.shift: non-advancing blocks")
     d_value = Decimal(str(curr["value"])) - Decimal(str(prev["value"]))
-    per_block = (d_value / Decimal(d_blocks)).quantize(Q18)
-    per_second = (per_block / seconds_per_block).quantize(Q18)
+    per_block = _q(d_value / Decimal(d_blocks))
+    per_second = _q(per_block / seconds_per_block)
     return {
         "d_value": d_value,
         "d_blocks": d_blocks,
